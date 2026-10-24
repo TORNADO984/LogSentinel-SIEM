@@ -1,0 +1,38 @@
+services:
+  opensearch:
+    image: opensearchproject/opensearch:2.19.1
+    environment:
+      discovery.type: single-node
+      DISABLE_SECURITY_PLUGIN: "true"
+      DISABLE_INSTALL_DEMO_CONFIG: "true"
+      OPENSEARCH_JAVA_OPTS: "-Xms512m -Xmx512m"
+    volumes:
+      - search-data:/usr/share/opensearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9200/_cluster/health >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+    networks: [internal]
+  backend:
+    build: ./backend
+    environment:
+      OPENSEARCH_URL: http://opensearch:9200
+      API_KEY: ${API_KEY:-}
+      QUEUE_DATABASE_PATH: /app/data/inbox.db
+    volumes:
+      - queue-data:/app/data
+    ports: ["127.0.0.1:8000:8000"]
+    depends_on:
+      opensearch: {condition: service_healthy}
+    networks: [internal]
+  frontend:
+    build: ./frontend
+    ports: ["127.0.0.1:8080:80"]
+    depends_on: [backend]
+    networks: [internal]
+networks:
+  internal:
+volumes:
+  search-data:
+  queue-data:
