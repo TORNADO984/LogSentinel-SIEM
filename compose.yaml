@@ -20,6 +20,7 @@ services:
       OPENSEARCH_URL: http://opensearch:9200
       API_KEY: ${API_KEY:-}
       QUEUE_DATABASE_PATH: /app/data/inbox.db
+      WORKFLOW_DATABASE_PATH: /app/data/workflow.db
     volumes:
       - queue-data:/app/data
     ports: ["127.0.0.1:8000:8000"]

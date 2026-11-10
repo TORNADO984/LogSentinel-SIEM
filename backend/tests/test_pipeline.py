@@ -100,6 +100,34 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(event.source_ip, '2001:db8::1')
         self.assertEqual(normalize(LogInput(hostname='b', raw='Process created', source='sysmon', event_id=1)).event_type, 'process_created')
 
+    def test_alert_workflow_history_survives_detection_replay(self):
+        from app.detections import detect
+        log = LogInput(hostname='web', raw='useradd[1]: new user: name=alice')
+        self.post([log.model_dump(mode='json')])
+        alert = self.get('/api/alerts')['items'][0]
+        self.assertEqual(alert['workflow']['status'], 'new')
+        path = '/api/alerts/' + alert['id']
+        update = {'expected_revision': 0, 'actor': 'Analyst One', 'status': 'investigating', 'assignee': 'Analyst One', 'note': 'Checking change ticket'}
+        self.assertEqual(self.client.patch(path + '/workflow', json=update).status_code, 401)
+        response = self.client.patch(path + '/workflow', json=update, headers=self.headers)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()['revision'], 1)
+        self.assertEqual(self.client.patch(path + '/workflow', json=update, headers=self.headers).status_code, 409)
+        detect(normalize(log), app.state.store)
+        detail = self.get(path)
+        self.assertEqual(detail['workflow']['status'], 'investigating')
+        self.assertEqual(detail['workflow']['history'][0]['note'], 'Checking change ticket')
+        for invalid in ({'actor': ' '}, {'status': 'invalid'}, {'note': '   '}, {'note': 'x' * 4001}):
+            body = {**update, 'expected_revision': 1, **invalid}
+            self.assertEqual(self.client.patch(path + '/workflow', json=body, headers=self.headers).status_code, 422)
+        body = {**update, 'expected_revision': 1, 'status': 'resolved', 'assignee': '', 'note': 'Approved administration'}
+        self.assertEqual(self.client.patch(path + '/workflow', json=body, headers=self.headers).status_code, 200)
+        workflow = self.get(path)['workflow']
+        self.assertEqual(len(workflow['history']), 2)
+        self.assertEqual(workflow['assignee'], '')
+        self.assertEqual(self.get('/api/alerts')['items'][0]['workflow']['status'], 'resolved')
+        self.assertEqual(self.client.patch('/api/alerts/' + '0' * 64 + '/workflow', json=update, headers=self.headers).status_code, 404)
+
 
 if __name__ == '__main__':
     unittest.main()

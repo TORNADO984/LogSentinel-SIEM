@@ -5,7 +5,7 @@ import os
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Path
 from fastapi.middleware.cors import CORSMiddleware
 
 from .detections import detect
@@ -13,6 +13,7 @@ from .models import LogInput
 from .parser import normalize
 from .queue import IdConflict, Inbox, QueueFull
 from .storage import Store
+from .workflow import RevisionConflict, WorkflowStore, WorkflowUpdate
 
 logger = logging.getLogger('logsentinel')
 
@@ -22,6 +23,7 @@ async def lifespan(app):
     app.state.store = Store()
     app.state.store.initialize()
     app.state.queue = Inbox()
+    app.state.workflows = WorkflowStore()
     app.state.wakeup = asyncio.Event()
     app.state.stopping = False
 
@@ -53,11 +55,12 @@ async def lifespan(app):
         await task
         app.state.queue.close()
         app.state.store.close()
+        app.state.workflows.close()
 
 
 app = FastAPI(title='LogSentinel SIEM', version='0.2.0', lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=os.getenv('CORS_ORIGINS', 'http://localhost:5173').split(','),
-                   allow_methods=['GET', 'POST'], allow_headers=['Content-Type', 'X-API-Key'])
+                   allow_methods=['GET', 'POST', 'PATCH'], allow_headers=['Content-Type', 'X-API-Key'])
 
 
 def authorize(x_api_key: str | None = Header(default=None)):
@@ -123,7 +126,30 @@ async def events(q: str = Query('', max_length=300), hostname: str | None = None
 
 @app.get('/api/alerts', dependencies=[Depends(authorize)])
 async def alerts(limit: int = Query(100, ge=1, le=1000)):
-    return app.state.store.query('alerts', limit=limit)
+    result = app.state.store.query('alerts', limit=limit)
+    for alert in result['items']:
+        alert['workflow'] = app.state.workflows.get(alert['id'])
+    return result
+
+
+@app.get('/api/alerts/{alert_id}', dependencies=[Depends(authorize)])
+async def alert_detail(alert_id: str = Path(pattern=r'^[a-f0-9]{64}$')):
+    record = app.state.store.get('alerts', alert_id)
+    if record is None:
+        raise HTTPException(404, 'Alert not found')
+    return {**record, 'workflow': app.state.workflows.get(alert_id, include_history=True)}
+
+
+@app.patch('/api/alerts/{alert_id}/workflow', dependencies=[Depends(authorize)])
+async def update_workflow(update: WorkflowUpdate, alert_id: str = Path(pattern=r'^[a-f0-9]{64}$')):
+    if app.state.store.get('alerts', alert_id) is None:
+        raise HTTPException(404, 'Alert not found')
+    try:
+        return app.state.workflows.update(alert_id, update)
+    except RevisionConflict as error:
+        raise HTTPException(409, str(error))
+    except ValueError as error:
+        raise HTTPException(422, str(error))
 
 
 @app.get('/api/events/{event_id}', dependencies=[Depends(authorize)])

@@ -6,7 +6,9 @@ A mini Security Information and Event Management platform that centralizes Linux
 
 **Python · FastAPI · OpenSearch · React · Docker**
 
-The dashboard includes a security overview, hourly activity chart, live event stream, MITRE-mapped alerts, and evidence details. A home-page screenshot is pending: desktop capture was blocked by browser URL verification in the development environment.
+![LogSentinel security overview](docs/screenshots/home.png)
+
+*The running dashboard with synthetic telemetry and documentation/example IP addresses. [View the investigation workflow](docs/screenshots/investigation.png).*
 
 ## Features
 
@@ -14,6 +16,7 @@ The dashboard includes a security overview, hourly activity chart, live event st
 - **Normalization:** common UTC timestamps, hostnames, IPv4/IPv6 addresses, accounts, event types, severity, and original messages.
 - **Detection:** failed-login spikes, successful logins after repeated failures, account creation, and selected privilege changes.
 - **Investigation:** MITRE ATT&CK mappings, alert evidence links, and original event details.
+- **Analyst workflow:** status tracking, assignment labels, investigation notes, and persistent change history with protection against stale edits.
 - **Search:** filter events by hostname, source IP, severity, event type, message, and time.
 - **SOC dashboard:** hourly security trends, event stream, alerts, queue depth, and five-second automatic refresh.
 - **Reliable delivery:** disk-backed inbox, stable IDs, duplicate prevention, retry backoff, dead letters, and collector checkpoints.
@@ -130,6 +133,14 @@ This provides **at-least-once processing with idempotent event/alert writes**, n
 
 Normal file replacement/rotation and observed truncation are handled. Very fast copy-truncate/rewrite cycles or deleting checkpoints can cause replay or missed historical bytes. Preserve rotated source files until collection completes.
 
+## Investigate an alert
+
+Open an alert and use **Investigation workflow** to choose **New**, **Investigating**, **Resolved**, or **False positive**. Assign an analyst label, enter your name, and add a note explaining the finding or decision. Save the investigation to append a timestamped history entry. Clear the assignee to unassign an alert; a resolved alert can be reopened by setting it to Investigating.
+
+Workflow state is stored separately from detection documents, so repeated detections and ingestion retries do not erase analyst updates. Existing alerts start as New/Unassigned without a migration. Both SQLite and OpenSearch event modes use the workflow SQLite file. Back it up alongside the inbox and event store.
+
+Updates require the revision read with the alert. If another client saves first, the API returns 409; the dashboard reloads the latest state/history and preserves your draft so you can review it before trying again. Names are self-reported labels under the shared API key, not verified user identities. History is append-only through the API, but is not a tamper-proof security audit log. Status changes do not suppress future detections; updates to the same grouped alert retain its current workflow status.
+
 SQLite search uses substring matching; OpenSearch uses analyzed phrase matching. Search returns the newest 100 events by default, up to 1,000 via `limit`, and includes the total match count. Dashboard searches support message, hostname, source IP, severity, and time. Alert details link to supporting events and their original logs. Dashboard hourly trends use exact backend counts; no pagination or long-term retention policy is implemented yet.
 
 ## API
@@ -137,6 +148,8 @@ SQLite search uses substring matching; OpenSearch uses analyzed phrase matching.
 - `POST /api/ingest`: array of 1–500 records (`hostname`, `raw`, optional UUID `id`, `source`, `timestamp`, `event_id`, `username`, `source_ip`). Returns accepted/duplicate counts and IDs.
 - `GET /api/events`: `q`, `hostname`, `source_ip`, `severity`, `event_type`, `start`, `end`, `limit`. Times require timezone offsets.
 - `GET /api/alerts`: newest alerts and total count.
+- `GET /api/alerts/{alert_id}`: detection details, workflow state, and investigation history.
+- `PATCH /api/alerts/{alert_id}/workflow`: save status, assignment, or notes; requires `expected_revision` and a self-reported `actor` name. Conflicting edits return 409.
 - `GET /api/events/{event_id}`: one event and its original log for investigation.
 - `GET /api/overview`: last-24-hour totals and hourly trend.
 - `GET /api/health`: storage/queue modes, pending count, completed count, and dead-letter count.
@@ -158,6 +171,7 @@ Example ingestion body:
 - `OPENSEARCH_URL`: OpenSearch endpoint; unset uses SQLite.
 - `DATABASE_PATH`: local event database, default `logsentinel.db`.
 - `QUEUE_DATABASE_PATH`: inbox file, default `<DATABASE_PATH>.queue.db`. Docker uses `/app/data/inbox.db`.
+- `WORKFLOW_DATABASE_PATH`: analyst state/history database, default `<DATABASE_PATH>.workflow.db`. Docker persists it at `/app/data/workflow.db` on the queue-data volume.
 - `CORS_ORIGINS`: comma-separated origins, default `http://localhost:5173`. The dashboard normally uses same-origin Vite/Nginx proxying.
 - `API_PROXY_TARGET`: Vite's API target, default `http://127.0.0.1:8000`.
 
@@ -200,7 +214,7 @@ Local SQLite integration and the frontend build are verified. The Docker configu
 - SQLite searches load records into memory; larger datasets should use OpenSearch. Bulk indexing, pagination, retention, and archiving remain future work.
 - An OpenSearch outage during startup prevents API initialization. Runtime processing failures use the inbox retry path.
 - Shared-key access is optional locally. User accounts, analyst/admin roles, and audit trails are not implemented.
-- Next: alert ownership, investigation notes, status transitions, and case timelines.
+- Implemented: per-alert assignment, investigation notes, status transitions, and change history. Multi-alert cases remain future work.
 - Next: live OpenSearch integration tests, configurable detection thresholds, authorized-activity exclusions, and account-aware/late-event correlation.
 - Next: native Windows Event Log subscriptions and additional Sysmon analytics.
 - The system does not automatically contain hosts or change firewall rules.

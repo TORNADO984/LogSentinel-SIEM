@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Add persistent analyst workflows: New, Investigating, Resolved, and False positive.
+- Add assignment labels, investigation notes, and timestamped change history in alert details.
+- Reject stale edits using optimistic revisions, preserving drafts for review in the dashboard.
+- Store analyst state separately so detector replay cannot erase it; persist workflow data in Docker.
+- Test workflow authorization, validation, detection replay, restart persistence, and conflicting edits.
+- Capture the running home page and investigation workflow for project documentation.
+
 ## 0.2.0
 
 - Replace the memory queue with a SQLite inbox committed before HTTP acknowledgment.
