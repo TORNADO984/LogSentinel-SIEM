@@ -53,7 +53,9 @@ class Store:
             if q:
                 clauses.append({'match_phrase': {'raw': q}})
             response = self.client.post(f'{self.url}/logsentinel-{collection}/_search', json={
-                'size': limit, 'track_total_hits': True, 'sort': [{'timestamp': 'desc'}, {'id.keyword': 'asc'}],
+                # The dynamic ID mapping does not exist until the first document is indexed.
+                'size': limit, 'track_total_hits': True,
+                'sort': [{'timestamp': 'desc'}, {'id.keyword': {'order': 'asc', 'unmapped_type': 'keyword'}}],
                 'query': {'bool': {'filter': clauses}}})
             response.raise_for_status()
             hits = response.json()['hits']

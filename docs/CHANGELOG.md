@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Fix searches on empty OpenSearch indices so a fresh dashboard loads before the first event arrives.
+- Add live Docker/OpenSearch verification using the real Linux/Windows/Sysmon collector, four detection scenarios, search filters, evidence, timelines, and analyst workflows.
+- Verify event, workflow, and inbox persistence after recreating all containers; run the same checks in GitHub Actions.
+- Allow configurable Docker host ports for isolated verification stacks and document the verified pipeline.
 - Add persistent analyst workflows: New, Investigating, Resolved, and False positive.
 - Add assignment labels, investigation notes, and timestamped change history in alert details.
 - Reject stale edits using optimistic revisions, preserving drafts for review in the dashboard.

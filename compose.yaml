@@ -23,13 +23,13 @@ services:
       WORKFLOW_DATABASE_PATH: /app/data/workflow.db
     volumes:
       - queue-data:/app/data
-    ports: ["127.0.0.1:8000:8000"]
+    ports: ["127.0.0.1:${LOGSENTINEL_API_PORT:-8000}:8000"]
     depends_on:
       opensearch: {condition: service_healthy}
     networks: [internal]
   frontend:
     build: ./frontend
-    ports: ["127.0.0.1:8080:80"]
+    ports: ["127.0.0.1:${LOGSENTINEL_DASHBOARD_PORT:-8080}:80"]
     depends_on: [backend]
     networks: [internal]
 networks:

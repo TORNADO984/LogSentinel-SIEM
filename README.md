@@ -68,7 +68,7 @@ The script reuses event IDs when run in the same minute. Demo records remain ord
 docker compose up --build
 ```
 
-Open http://localhost:8080. OpenSearch must become healthy before the API starts. Allow several minutes on first startup and allocate at least 4 GB of Docker memory. On Linux, OpenSearch may require `vm.max_map_count=262144`.
+Open http://localhost:8080. OpenSearch must become healthy before the API starts. Allow several minutes on first startup and allocate at least 4 GB of Docker memory. On Linux, OpenSearch may require `vm.max_map_count=262144`. Set `LOGSENTINEL_API_PORT` and `LOGSENTINEL_DASHBOARD_PORT` in `.env` to change the host ports (defaults: 8000 and 8080).
 
 Docker publishes the API and dashboard only on loopback. OpenSearch has security disabled for this local development stack and is not published to the host. Separate named volumes persist OpenSearch data and the durable inbox. Before deployment, configure authentication, TLS, index retention, backups, and access control. Copy `.env.example` to `.env` and set `API_KEY` to enable shared-key API access. For local development set the `API_KEY` environment variable before starting the API. Enter the same key in dashboard Settings; collectors read `LOGSENTINEL_API_KEY`. Never embed credentials in a frontend build.
 
@@ -183,6 +183,7 @@ backend/tests/        Pipeline, correlation, authorization, and durability tests
 collector/           Checkpointed file collector and recovery tests
 frontend/src/        React overview, events, alerts, and settings
 scripts/seed_demo.py Full-day synthetic telemetry generator
+scripts/verify_stack.py Live collection, search, detection, and restart verification
 docs/                Project change history and documentation
 .github/workflows/   Backend tests and dashboard build checks
 compose.yaml         OpenSearch, API, and Nginx services
@@ -204,9 +205,22 @@ cd ..
 docker compose config --quiet
 ```
 
-Tests cover normalization, IPv6, Windows/Sysmon records, correlation, host/time isolation, searches, evidence retrieval, authorization, restart recovery, duplicate conflicts, capacity rollback, backoff/dead letters, and collector replay after unknown delivery. GitHub Actions runs the tests and frontend build on pushes to `main` and pull requests.
+Tests cover normalization, IPv6, Windows/Sysmon records, correlation, host/time isolation, searches, evidence retrieval, authorization, restart recovery, duplicate conflicts, capacity rollback, backoff/dead letters, and collector replay after unknown delivery. GitHub Actions runs the tests, frontend build, and a real Docker/OpenSearch integration job on pushes to `main` and pull requests.
 
-Local SQLite integration and the frontend build are verified. The Docker configuration is validated; live OpenSearch/container integration remains unverified because the development machine's Docker engine is stopped.
+With the Docker stack running, verify the entire pipeline through the dashboard's Nginx proxy:
+
+```powershell
+# If API_KEY is configured, set LOGSENTINEL_API_KEY to the same value first.
+python scripts/verify_stack.py --state-file data/stack-verification.json
+docker compose up -d --force-recreate --wait --wait-timeout 180
+python scripts/verify_stack.py --resume --state-file data/stack-verification.json
+```
+
+Use `--base-url http://127.0.0.1:18080` when using an alternate dashboard port. On a fresh stack, add `--expect-empty` to the first verification command to assert that searches work before any documents exist. Keep the same Compose project name and port/key settings when recreating containers. This recreates services with their existing volumes; it does not delete data.
+
+The check uses the real file collector to add ten synthetic Linux, Windows Security, and Sysmon events under a unique `verify-...` hostname. It verifies checkpoint replay, normalization, search filters, all four detection rules, original evidence, hourly counts, analyst updates, stale-edit conflicts, and event-ID deduplication. The resume check confirms that events, investigation history, and inbox IDs survive container recreation. It also checks dashboard HTML/assets and API proxying; browser interactions are not automated by this script. Synthetic records remain in the event store, so use a separate Compose project for disposable verification. No additional Python packages are required for the script.
+
+Verified on November 13, 2026: all 12 backend tests, both collector tests, the React production build, and the live Docker/OpenSearch pipeline including persistence across container recreation. The live check exposed and fixed an empty-index sorting error that previously broke dashboard searches before the first event arrived.
 
 ## Current limits and roadmap
 
@@ -215,6 +229,6 @@ Local SQLite integration and the frontend build are verified. The Docker configu
 - An OpenSearch outage during startup prevents API initialization. Runtime processing failures use the inbox retry path.
 - Shared-key access is optional locally. User accounts, analyst/admin roles, and audit trails are not implemented.
 - Implemented: per-alert assignment, investigation notes, status transitions, and change history. Multi-alert cases remain future work.
-- Next: live OpenSearch integration tests, configurable detection thresholds, authorized-activity exclusions, and account-aware/late-event correlation.
+- Next: configurable detection thresholds, authorized-activity exclusions, and account-aware/late-event correlation.
 - Next: native Windows Event Log subscriptions and additional Sysmon analytics.
 - The system does not automatically contain hosts or change firewall rules.
